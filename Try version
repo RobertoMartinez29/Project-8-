@@ -1,0 +1,104 @@
+#include <msp430.h>
+
+unsigned int RXData;
+unsigned int RXByteCtr;
+int StartEnable = 0;
+
+void main(void)
+{
+  WDTCTL = WDTPW | WDTHOLD;
+
+  // Assign P1.5 as output to reset the slave
+  P1DIR |= BIT2 | BIT5;   // Adjust pins
+  P1SEL |= BIT6 | BIT7 | BIT2;
+  P1SEL2 |= BIT6 | BIT7;
+  P1IE |= 0x08;
+  P1IES |= 0x08;
+  P1IFG = 0x00;
+
+  ICB0CTL1 |= UCSWRST;    // Setup the I2C mode
+
+  UCB0CTL0 = UCMST | UCMODE_3 | UCSYNC;
+
+  UCB0CTL1 = UCSSEL_2 | UCSWRST;
+
+  UCB0BR0 = 12;
+
+  UCB0BR1 = 0;
+
+
+  UCB0I2CSA = 0x48;   // Slave address
+
+  // Clear SW reset, resume operation
+  UCB0CTL1 &= ~UCSWRST;
+
+  IE2 |= UCB0RXIE;    // Enable RX interrupt
+
+  TACCR1 = 0; //setup the PWM
+  TACCR0 = 999;
+  TACCTL1 = OUTMOD_7;
+  TACTL = TASSEL_2 | MC_1 | ID_3;
+
+  P1OUT &= ~BIT5;     // Reset the I2C slave
+  P1OUT |= BIT5; 
+
+  _enable_interrupt();
+
+  while(1)
+  {
+    RXByteCtr = 2;
+
+    // Ensure that the stop condition is sent
+    while (UCB0CTL1 & UCTXSTP);
+
+    if (StartEnable == 1)
+    {
+      UCB0CTL1 |= UCTXSTT;
+      LPM0;
+    }
+
+  }
+}
+
+//I2C transmit interrupt
+#pragma vector = USCIAB0TX_VECTOR
+__interrupt void USCIAB0TX_ISR(void)
+{
+  RXByteCtr--;
+  if(RXByteCtr)
+  {
+    // Move the received data (high byte) to
+    // low byte of RXData
+    RXData = UCB0RXBUF;
+
+    // shift low byte of RXData to high byte
+    RXData = (RXData << 8);
+
+    // Generate I2C stop condition
+    if (RXByteCtr == 1)
+    UCB0CTL1 |= UCTXSTP;
+  }
+
+  else 
+  {
+    //Move the received data (low byte) to
+    //low byte of RXData
+    RXData |= UCB0RXBUF;
+
+    //Load TACCR1 with RXData
+    TACCR1 = RXData;
+
+    //Reset StartEnable to stop I2C communication
+    StartEnable = 0;
+
+    LPM0_EXIT;
+  }
+}
+
+#pragma vector = Port1_VECTOR
+__interrupt void Port_1(void)
+{
+  //set StartEnable to start the I2C communication
+  StartEnable = 1;
+  P1IFG = 0x00;
+}
