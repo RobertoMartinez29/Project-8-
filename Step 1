@@ -1,0 +1,41 @@
+#include <msp430.h>
+
+void main(void)
+{
+    WDTCTL = WDTPW | WDTHOLD;      // Stop watchdog timer
+
+    // --- Clock setup (1 MHz) ---
+    BCSCTL1 = CALBC1_1MHZ;
+    DCOCTL  = CALDCO_1MHZ;
+
+    // --- Configure I2C pins (P1.6 = SCL, P1.7 = SDA) ---
+    P1SEL  |= BIT6 | BIT7;
+    P1SEL2 |= BIT6 | BIT7;
+
+    // --- Configure USCI_B0 in I2C master mode ---
+    UCB0CTL1 |= UCSWRST;                     // Put eUSCI in reset
+    UCB0CTL0 = UCMST | UCMODE_3 | UCSYNC;    // Master, I2C mode, synchronous
+    UCB0CTL1 = UCSSEL_2 | UCSWRST;           // Use SMCLK, keep reset active
+    UCB0BR0 = 12;                            // SMCLK/12 → ~100 kHz I²C clock
+    UCB0BR1 = 0;
+    UCB0I2CSA = 0xA0 << 1;                        // Example slave address (0x48)
+    UCB0CTL1 &= ~UCSWRST;                    // Release from reset, ready to go
+
+    while (1)
+    {
+        // --- Send START + Address + STOP ---
+        UCB0CTL1 |= UCTXSTT;          // Transmit mode + START condition
+        UCB0CTL1 &= ~UCTR;
+
+        // Wait for the address byte to finish sending
+        while ((UCB0CTL1 & UCTXSTT));        // Wait until START complete
+
+        // Generate STOP condition immediately after address
+        UCB0CTL1 |= UCTXSTP;
+
+        // Wait for STOP to complete
+        while (UCB0CTL1 & UCTXSTP);
+
+        __delay_cycles(500000);              // ~0.5s delay for oscilloscope spacing
+    }
+}
