@@ -1,0 +1,77 @@
+#include <msp430.h>
+
+void main(void)
+{
+    WDTCTL = WDTPW | WDTHOLD;      // Stop watchdog timer
+
+    // --- Clock setup (1 MHz) ---
+    BCSCTL1 = CALBC1_1MHZ;
+    DCOCTL  = CALDCO_1MHZ;
+
+    // --- Configure I2C pins (P1.6 = SCL, P1.7 = SDA) ---
+    P1SEL  |= BIT6 | BIT7;
+    P1SEL2 |= BIT6 | BIT7;
+
+    // --- Configure USCI_B0 in I2C master mode ---
+    UCB0CTL1 |= UCSWRST;                     // Put eUSCI in reset
+    UCB0CTL0 = UCMST | UCMODE_3 | UCSYNC;    // Master, I2C mode, synchronous
+    UCB0CTL1 = UCSSEL_2 | UCSWRST;           // Use SMCLK, keep reset active
+    UCB0BR0 = 12;                            // SMCLK/12 → ~100 kHz I²C clock
+    UCB0BR1 = 0;
+    UCB0I2CSA = 0x50;                        // Example slave address (0x48)
+    UCB0CTL1 &= ~UCSWRST;                    // Release from reset, ready to go
+    //IE2 |= UCB0TXIE;
+
+    _enable_interrupt();
+
+    while (1)
+    {
+        // --- Send START + Address + STOP ---
+        UCB0CTL1 |= UCTR | UCTXSTT;          // Transmit mode + START condition
+
+        // Wait for the address byte to finish sending
+        while (!(IFG2 & UCB0TXIFG));        // Wait until START complete
+
+        UCB0TXBUF = 0xE0;
+
+        while (!(IFG2 & UCB0TXIFG));
+
+        UCB0CTL1 &= ~UCTR; 
+        UCB0CTL1 |= UCTXSTT;
+
+        while ((UCB0CTL1 & UCTXSTT) && !(UCB0STAT & UCNACKIFG));
+        if (UCB0STAT & UCNACKIFG) 
+        {
+            UCB0CTL1 |= UCTXSTP;
+            while (UCB0CTL1 & UCTXSTP);
+            UCB0STAT &= ~UCNACKIFG;
+            // continue; // retry next loop iteration
+        }
+
+        UCB0CTL1 |= UCTXNACK;     // NACK the upcoming (only) byte
+        UCB0CTL1 |= UCTXSTP;      // schedule STOP right after that byte
+
+
+        while (!(IFG2 & UCB0RXIFG));        // Wait until START complete
+        volatile unsigned char data = UCB0RXBUF; // ***READ*** to clear RXIFG
+
+
+        // Wait for STOP to complete
+        while (UCB0CTL1 & UCTXSTP);
+
+        __delay_cycles(500000);              // ~0.5s delay for oscilloscope spacing
+    }
+}
+
+/*
+#pragma vector = USCIAB0TX_VECTOR 
+__interrupt void USCIAB0TX_ISR(void)
+{
+    UCB0TXBUF = 0xE0;
+
+    // Generate STOP condition immediately after address
+    UCB0CTL1 |= UCTXSTP;
+
+    IFG2 &= ~UCB0TXIFG;
+}
+*/
