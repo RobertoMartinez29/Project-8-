@@ -18,7 +18,7 @@ void main(void)
     UCB0CTL1 = UCSSEL_2 | UCSWRST;           // Use SMCLK, keep reset active
     UCB0BR0 = 12;                            // SMCLK/12 → ~100 kHz I²C clock
     UCB0BR1 = 0;
-    UCB0I2CSA = 0xA0 << 1;                        // Example slave address (0x48)
+    UCB0I2CSA = 0x48;                        // Example slave address (0x48)
     UCB0CTL1 &= ~UCSWRST;                    // Release from reset, ready to go
 
     while (1)
